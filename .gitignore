@@ -6,6 +6,9 @@
 *.a
 *.lib
 
+# Shared libraries
+*.so
+
 # Executables and binaries
 *.exe
 *.elf
