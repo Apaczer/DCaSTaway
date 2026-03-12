@@ -1157,7 +1157,7 @@ int retro_load_game(const struct retro_game_info *game)
         sf2000_frameskip = 0;  /* OFF by default */
         sf2000_input_mode = 0;  /* Joystick by default */
         sf2000_player2_enabled = 0;  /* Off by default */
-        fps_show = 1;  /* v023: FPS ON by default */
+        fps_show = 0;  /* FPS OFF by default */
         apply_frameskip();
         DIAG("retro_load_game() - using default config");
     }
