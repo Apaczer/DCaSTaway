@@ -14,6 +14,7 @@ extern "C" void sf_notify_vbl_done(int vbl);
 #define xlog(...) ((void)0)
 #define XLOG(msg) ((void)0)
 #else
+#define xlog(...) ((void)0)
 #define XLOG(msg)
 #define sf_notify_vbl(x) ((void)0)
 #define sf_notify_vbl_done(x) ((void)0)

@@ -1751,7 +1751,7 @@ extern int32 mfpcycletab[16];
 extern Uint8 acia1_cr, acia1_sr, acia1_dr, acia2_cr, acia2_sr, acia2_dr;
 
 /* Video */
-extern Uint32 vid_adr;
+//extern Uint32 vid_adr;
 extern Uint8 vid_baseh, vid_basem;
 extern Uint8 vid_syncmode, vid_shiftmode;
 extern Sint16 vid_col[16];
@@ -1762,15 +1762,15 @@ extern Uint16 dma_car, dma_scr, dma_sr, dma_mode;
 extern Uint8 dma_adrh, dma_adrm, dma_adrl;
 
 /* Sound - PSG */
-extern Uint32 psg[26];
+//extern Uint32 psg[26];
 
 /* Blitter */
 extern Uint16 blt_halftone[16];
 extern Sint16 blt_src_x_inc, blt_src_y_inc;
-extern Uint32 blt_src_addr;
+//extern Uint32 blt_src_addr;
 extern Sint16 blt_end_1, blt_end_2, blt_end_3;
 extern Sint16 blt_dst_x_inc, blt_dst_y_inc;
-extern Uint32 blt_dst_addr;
+//extern Uint32 blt_dst_addr;
 extern Uint16 blt_x_cnt, blt_y_cnt;
 extern int8 blt_hop, blt_op, blt_status, blt_skew;
 

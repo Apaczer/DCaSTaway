@@ -24,8 +24,8 @@ ifeq ($(platform), sf2000)
 else
     # Unix (for testing)
     TARGET = $(NAME)_libretro.so
-    CC = gcc
-    CXX = g++
+    CC ?= gcc
+    CXX ?= g++
     CFLAGS += -fPIC
     LDFLAGS = -shared -lm
 endif
