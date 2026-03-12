@@ -21,6 +21,15 @@ ifeq ($(platform), sf2000)
     CFLAGS += -fomit-frame-pointer
     CFLAGS += -DSF2000 -DNO_THREADS
     STATIC_LINKING = 1
+else ifeq ($(platform), miyoo)
+   TARGET := $(NAME)_libretro.so
+   CC = /opt/miyoo/usr/bin/arm-linux-gcc
+   CXX = /opt/miyoo/usr/bin/arm-linux-g++
+   AR = /opt/miyoo/usr/bin/arm-linux-ar
+   fpic := -fPIC -DPIC
+   CFLAGS += -fomit-frame-pointer -ffast-math -march=armv5te -mtune=arm926ej-s
+   CXXFLAGS += $(CFLAGS)
+   LDFLAGS += -shared -lm
 else
     # Unix (for testing)
     TARGET = $(NAME)_libretro.so
