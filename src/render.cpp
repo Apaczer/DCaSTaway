@@ -107,7 +107,7 @@ void render_up_screen(void)
 #if !defined(USE_DOUBLE_BUFFER) && !defined(DINGOO)
 	SDL_UpdateRect(screen, 0 , screen_height-he, screen_width, he);
 #else
-//	TV_Flip(screen);
+	TV_Flip(screen);
 #endif
 	screen_add=0;
 }
@@ -215,7 +215,7 @@ void render_down_screen(void)
 #if !defined(USE_DOUBLE_BUFFER) && !defined(DINGOO)
 	SDL_UpdateRect(screen, 0 , screen_height-he, screen_width, he);
 #else
-//	TV_Flip(screen);
+	TV_Flip(screen);
 #endif
 	screen_add=20;
 }
