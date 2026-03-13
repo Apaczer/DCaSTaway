@@ -138,9 +138,8 @@ static int fps_last_frame = 0;  /* libretro_frame_count at last FPS update */
  * 0=OFF (512 cycles/line), 1=1.25x (640), 2=1.5x (768), 3=2x (1024) */
 static int sf2000_cpu_boost = 0;
 
-/* L+R hold counter for toggle (3 seconds @ 50fps = 150 frames) */
+/* L+R hold counter for toggle*/
 static int lr_hold_frames = 0;
-#define LR_TOGGLE_FRAMES 150
 
 /* Menu state */
 static int sf2000_menu_active = 0;
@@ -1225,13 +1224,11 @@ static void poll_input(void)
     int cur_l     = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L);
     int cur_r     = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R);
 
-    /* L+R held for 3 seconds = toggle input mode */
+    /* L+R press = toggle input mode */
     if (cur_l && cur_r) {
         lr_hold_frames++;
-        if (lr_hold_frames >= LR_TOGGLE_FRAMES) {
+        if (lr_hold_frames == 3)
             sf2000_input_mode = !sf2000_input_mode;
-            lr_hold_frames = 0;  /* Reset counter */
-        }
     } else {
         lr_hold_frames = 0;
     }
