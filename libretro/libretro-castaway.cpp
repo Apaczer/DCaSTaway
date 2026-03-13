@@ -20,6 +20,7 @@
 #include "st/st.h"
 #include "st/mem.h"
 #include "dcastaway.h"
+#include "m68k/m68k_intrf.h"  /* v033: For M68KCONTEXT (save states) */
 
 /* Sound support - v017 */
 #ifndef NO_SOUND
@@ -1720,26 +1721,382 @@ void retro_reset(void)
 }
 
 /*
- * Save states (not implemented yet)
+ * Save states - v033: Full implementation
+ * Based on save.cpp structure, adapted for libretro buffer I/O (no files, no compression)
  */
+
+/* External variables from emulator core - same as save.cpp */
+
+/* Memory - MEMSIZE is defined in config.h as 0x00100000L (1MB) */
+extern int8 *membase;
+
+/* 68000 CPU (FAME core) - M68KCONTEXT is now from m68k_intrf.h */
+
+/* FDC */
+extern unsigned char fdc_data, fdc_track, fdc_sector, fdc_status, fdc_command, fdc_int;
+extern char fdcdir;
+extern unsigned char disk_ejected[2];
+extern unsigned char disk_changed[2];
+extern int discpos[2];
+
+/* MFP */
+extern Uint8 memconf;
+extern Uint8 mfp_gpip, mfp_aer, mfp_ddr, mfp_iera, mfp_ierb, mfp_ipra, mfp_iprb;
+extern Uint8 mfp_isra, mfp_isrb, mfp_imra, mfp_imrb, mfp_ivr, mfp_tacr;
+extern Uint8 mfp_tbcr, mfp_tcdcr, mfp_scr, mfp_ucr, mfp_rsr, mfp_tsr, mfp_udr;
+extern int32 mfp_reg[12];
+extern int32 mfpcycletab[16];
+
+/* ACIA */
+extern Uint8 acia1_cr, acia1_sr, acia1_dr, acia2_cr, acia2_sr, acia2_dr;
+
+/* Video */
+extern Uint32 vid_adr;
+extern Uint8 vid_baseh, vid_basem;
+extern Uint8 vid_syncmode, vid_shiftmode;
+extern Sint16 vid_col[16];
+extern int vid_flag;
+
+/* DMA */
+extern Uint16 dma_car, dma_scr, dma_sr, dma_mode;
+extern Uint8 dma_adrh, dma_adrm, dma_adrl;
+
+/* Sound - PSG */
+extern Uint32 psg[26];
+
+/* Blitter */
+extern Uint16 blt_halftone[16];
+extern Sint16 blt_src_x_inc, blt_src_y_inc;
+extern Uint32 blt_src_addr;
+extern Sint16 blt_end_1, blt_end_2, blt_end_3;
+extern Sint16 blt_dst_x_inc, blt_dst_y_inc;
+extern Uint32 blt_dst_addr;
+extern Uint16 blt_x_cnt, blt_y_cnt;
+extern int8 blt_hop, blt_op, blt_status, blt_skew;
+
+/* IKBD */
+extern int ikbd_pulling;
+extern int ikbd_direct;
+extern unsigned char inbuff[10];
+extern unsigned char outbuff[20];
+extern int inbuffi;
+extern int outbuffi;
+extern struct _mouse mouse;
+extern struct _joystick joystick;
+
+/* State size: registers (~2KB) + RAM (1MB default, no compression) */
+#define CASTAWAY_STATE_SIZE (2 * 1024 * 1024)  /* 2 MB - enough for 1MB RAM + regs */
+
+/* Magic header for save state validation */
+#define SAVESTATE_MAGIC 0x43415354  /* "CAST" */
+#define SAVESTATE_VERSION 1
+
+/* Helper macros for buffer I/O */
+#define SAVE_VAR(var) do { \
+    if (pos + sizeof(var) <= max_size) { \
+        memcpy(ptr, &(var), sizeof(var)); \
+        ptr += sizeof(var); \
+        pos += sizeof(var); \
+    } \
+} while(0)
+
+#define SAVE_ARRAY(arr, count) do { \
+    size_t sz = sizeof((arr)[0]) * (count); \
+    if (pos + sz <= max_size) { \
+        memcpy(ptr, (arr), sz); \
+        ptr += sz; \
+        pos += sz; \
+    } \
+} while(0)
+
+#define LOAD_VAR(var) do { \
+    if (pos + sizeof(var) <= size) { \
+        memcpy(&(var), ptr, sizeof(var)); \
+        ptr += sizeof(var); \
+        pos += sizeof(var); \
+    } \
+} while(0)
+
+#define LOAD_ARRAY(arr, count) do { \
+    size_t sz = sizeof((arr)[0]) * (count); \
+    if (pos + sz <= size) { \
+        memcpy((arr), ptr, sz); \
+        ptr += sz; \
+        pos += sz; \
+    } \
+} while(0)
 
 size_t retro_serialize_size(void)
 {
-    return 0;
+    return CASTAWAY_STATE_SIZE;
 }
 
 int retro_serialize(void *data, size_t size)
 {
-    (void)data;
-    (void)size;
-    return 0;
+    uint8_t *ptr = (uint8_t *)data;
+    size_t pos = 0;
+    size_t max_size = size;
+    uint32_t magic = SAVESTATE_MAGIC;
+    uint32_t version = SAVESTATE_VERSION;
+    uint32_t ram_size = (uint32_t)MEMSIZE;  /* From config.h */
+
+    if (!data || size < CASTAWAY_STATE_SIZE)
+        return 0;
+
+    /* Header */
+    SAVE_VAR(magic);
+    SAVE_VAR(version);
+    SAVE_VAR(ram_size);
+
+    /* 68000 CPU (FAME) */
+    SAVE_ARRAY(M68KCONTEXT.dreg, 8);
+    SAVE_ARRAY(M68KCONTEXT.areg, 8);
+    SAVE_VAR(M68KCONTEXT.pc);
+    SAVE_VAR(M68KCONTEXT.sr);
+    SAVE_VAR(M68KCONTEXT.asp);
+    SAVE_VAR(M68KCONTEXT.execinfo);
+    SAVE_ARRAY(M68KCONTEXT.interrupts, 8);
+
+    /* FDC */
+    SAVE_VAR(fdc_data);
+    SAVE_VAR(fdc_track);
+    SAVE_VAR(fdc_sector);
+    SAVE_VAR(fdc_status);
+    SAVE_VAR(fdc_command);
+    SAVE_VAR(fdc_int);
+    SAVE_VAR(fdcdir);
+    SAVE_ARRAY(disk_ejected, 2);
+    SAVE_ARRAY(disk_changed, 2);
+    SAVE_ARRAY(discpos, 2);
+
+    /* MFP */
+    SAVE_VAR(memconf);
+    SAVE_VAR(mfp_gpip);
+    SAVE_VAR(mfp_aer);
+    SAVE_VAR(mfp_ddr);
+    SAVE_VAR(mfp_iera);
+    SAVE_VAR(mfp_ierb);
+    SAVE_VAR(mfp_ipra);
+    SAVE_VAR(mfp_iprb);
+    SAVE_VAR(mfp_isra);
+    SAVE_VAR(mfp_isrb);
+    SAVE_VAR(mfp_imra);
+    SAVE_VAR(mfp_imrb);
+    SAVE_VAR(mfp_ivr);
+    SAVE_VAR(mfp_tacr);
+    SAVE_VAR(mfp_tbcr);
+    SAVE_VAR(mfp_tcdcr);
+    SAVE_VAR(mfp_scr);
+    SAVE_VAR(mfp_ucr);
+    SAVE_VAR(mfp_rsr);
+    SAVE_VAR(mfp_tsr);
+    SAVE_VAR(mfp_udr);
+    SAVE_ARRAY(mfp_reg, 12);
+    SAVE_ARRAY(mfpcycletab, 16);
+
+    /* ACIA */
+    SAVE_VAR(acia1_cr);
+    SAVE_VAR(acia1_sr);
+    SAVE_VAR(acia1_dr);
+    SAVE_VAR(acia2_cr);
+    SAVE_VAR(acia2_sr);
+    SAVE_VAR(acia2_dr);
+
+    /* Video */
+    SAVE_VAR(vid_adr);
+    SAVE_VAR(vid_baseh);
+    SAVE_VAR(vid_basem);
+    SAVE_VAR(vid_syncmode);
+    SAVE_VAR(vid_shiftmode);
+    SAVE_ARRAY(vid_col, 16);
+    SAVE_VAR(vid_flag);
+
+    /* DMA */
+    SAVE_VAR(dma_car);
+    SAVE_VAR(dma_scr);
+    SAVE_VAR(dma_sr);
+    SAVE_VAR(dma_mode);
+    SAVE_VAR(dma_adrh);
+    SAVE_VAR(dma_adrm);
+    SAVE_VAR(dma_adrl);
+
+    /* Sound - PSG */
+    SAVE_ARRAY(psg, 26);
+
+    /* Blitter */
+    SAVE_ARRAY(blt_halftone, 16);
+    SAVE_VAR(blt_src_x_inc);
+    SAVE_VAR(blt_src_y_inc);
+    SAVE_VAR(blt_src_addr);
+    SAVE_VAR(blt_end_1);
+    SAVE_VAR(blt_end_2);
+    SAVE_VAR(blt_end_3);
+    SAVE_VAR(blt_dst_x_inc);
+    SAVE_VAR(blt_dst_y_inc);
+    SAVE_VAR(blt_dst_addr);
+    SAVE_VAR(blt_x_cnt);
+    SAVE_VAR(blt_y_cnt);
+    SAVE_VAR(blt_hop);
+    SAVE_VAR(blt_op);
+    SAVE_VAR(blt_status);
+    SAVE_VAR(blt_skew);
+
+    /* IKBD */
+    SAVE_VAR(ikbd_pulling);
+    SAVE_VAR(ikbd_direct);
+    SAVE_ARRAY(inbuff, 10);
+    SAVE_ARRAY(outbuff, 20);
+    SAVE_VAR(inbuffi);
+    SAVE_VAR(outbuffi);
+    SAVE_VAR(mouse);
+    SAVE_VAR(joystick);
+
+    /* RAM - uncompressed, direct copy */
+    if (membase && pos + MEMSIZE <= max_size) {
+        memcpy(ptr, membase, MEMSIZE);
+        ptr += MEMSIZE;
+        pos += MEMSIZE;
+    }
+
+    return 1;  /* Success */
 }
 
 int retro_unserialize(const void *data, size_t size)
 {
-    (void)data;
-    (void)size;
-    return 0;
+    const uint8_t *ptr = (const uint8_t *)data;
+    size_t pos = 0;
+    uint32_t magic, version, ram_size;
+
+    if (!data || size < 1024)
+        return 0;
+
+    /* Header */
+    LOAD_VAR(magic);
+    LOAD_VAR(version);
+    LOAD_VAR(ram_size);
+
+    /* Validate */
+    if (magic != SAVESTATE_MAGIC)
+        return 0;
+    if (version != SAVESTATE_VERSION)
+        return 0;
+    if (ram_size != (uint32_t)MEMSIZE)
+        return 0;
+
+    /* 68000 CPU (FAME) */
+    LOAD_ARRAY(M68KCONTEXT.dreg, 8);
+    LOAD_ARRAY(M68KCONTEXT.areg, 8);
+    LOAD_VAR(M68KCONTEXT.pc);
+    LOAD_VAR(M68KCONTEXT.sr);
+    LOAD_VAR(M68KCONTEXT.asp);
+    LOAD_VAR(M68KCONTEXT.execinfo);
+    LOAD_ARRAY(M68KCONTEXT.interrupts, 8);
+
+    /* FDC */
+    LOAD_VAR(fdc_data);
+    LOAD_VAR(fdc_track);
+    LOAD_VAR(fdc_sector);
+    LOAD_VAR(fdc_status);
+    LOAD_VAR(fdc_command);
+    LOAD_VAR(fdc_int);
+    LOAD_VAR(fdcdir);
+    LOAD_ARRAY(disk_ejected, 2);
+    LOAD_ARRAY(disk_changed, 2);
+    LOAD_ARRAY(discpos, 2);
+
+    /* MFP */
+    LOAD_VAR(memconf);
+    LOAD_VAR(mfp_gpip);
+    LOAD_VAR(mfp_aer);
+    LOAD_VAR(mfp_ddr);
+    LOAD_VAR(mfp_iera);
+    LOAD_VAR(mfp_ierb);
+    LOAD_VAR(mfp_ipra);
+    LOAD_VAR(mfp_iprb);
+    LOAD_VAR(mfp_isra);
+    LOAD_VAR(mfp_isrb);
+    LOAD_VAR(mfp_imra);
+    LOAD_VAR(mfp_imrb);
+    LOAD_VAR(mfp_ivr);
+    LOAD_VAR(mfp_tacr);
+    LOAD_VAR(mfp_tbcr);
+    LOAD_VAR(mfp_tcdcr);
+    LOAD_VAR(mfp_scr);
+    LOAD_VAR(mfp_ucr);
+    LOAD_VAR(mfp_rsr);
+    LOAD_VAR(mfp_tsr);
+    LOAD_VAR(mfp_udr);
+    LOAD_ARRAY(mfp_reg, 12);
+    LOAD_ARRAY(mfpcycletab, 16);
+
+    /* ACIA */
+    LOAD_VAR(acia1_cr);
+    LOAD_VAR(acia1_sr);
+    LOAD_VAR(acia1_dr);
+    LOAD_VAR(acia2_cr);
+    LOAD_VAR(acia2_sr);
+    LOAD_VAR(acia2_dr);
+
+    /* Video */
+    LOAD_VAR(vid_adr);
+    LOAD_VAR(vid_baseh);
+    LOAD_VAR(vid_basem);
+    LOAD_VAR(vid_syncmode);
+    LOAD_VAR(vid_shiftmode);
+    LOAD_ARRAY(vid_col, 16);
+    LOAD_VAR(vid_flag);
+
+    /* DMA */
+    LOAD_VAR(dma_car);
+    LOAD_VAR(dma_scr);
+    LOAD_VAR(dma_sr);
+    LOAD_VAR(dma_mode);
+    LOAD_VAR(dma_adrh);
+    LOAD_VAR(dma_adrm);
+    LOAD_VAR(dma_adrl);
+
+    /* Sound - PSG */
+    LOAD_ARRAY(psg, 26);
+
+    /* Blitter */
+    LOAD_ARRAY(blt_halftone, 16);
+    LOAD_VAR(blt_src_x_inc);
+    LOAD_VAR(blt_src_y_inc);
+    LOAD_VAR(blt_src_addr);
+    LOAD_VAR(blt_end_1);
+    LOAD_VAR(blt_end_2);
+    LOAD_VAR(blt_end_3);
+    LOAD_VAR(blt_dst_x_inc);
+    LOAD_VAR(blt_dst_y_inc);
+    LOAD_VAR(blt_dst_addr);
+    LOAD_VAR(blt_x_cnt);
+    LOAD_VAR(blt_y_cnt);
+    LOAD_VAR(blt_hop);
+    LOAD_VAR(blt_op);
+    LOAD_VAR(blt_status);
+    LOAD_VAR(blt_skew);
+
+    /* IKBD */
+    LOAD_VAR(ikbd_pulling);
+    LOAD_VAR(ikbd_direct);
+    LOAD_ARRAY(inbuff, 10);
+    LOAD_ARRAY(outbuff, 20);
+    LOAD_VAR(inbuffi);
+    LOAD_VAR(outbuffi);
+    LOAD_VAR(mouse);
+    LOAD_VAR(joystick);
+
+    /* RAM - uncompressed, direct copy */
+    if (membase && pos + MEMSIZE <= size) {
+        memcpy(membase, ptr, MEMSIZE);
+        ptr += MEMSIZE;
+        pos += MEMSIZE;
+    }
+
+    /* Force video refresh after restore */
+    vid_flag = 1;
+
+    return 1;  /* Success */
 }
 
 /*
