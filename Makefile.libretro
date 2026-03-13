@@ -1,8 +1,7 @@
-# DCaSTaway libretro Makefile for SF2000
+# DCaSTaway libretro Makefile
 # Atari ST emulator ported from Dingoo/Dreamcast/Miyoo
-# Based on UAE4ALL SF2000 Makefile pattern
 
-NAME    = castaway
+NAME    = dcastaway
 O       = o
 RM      = rm -f
 

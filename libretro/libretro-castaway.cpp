@@ -1,11 +1,12 @@
 /*
- * Castaway Atari ST emulator - libretro core for SF2000
+ * DCaSTaway Atari ST emulator - libretro core
  *
- * Based on DCaSTaway (Dingoo/Miyoo port)
- * Ported to SF2000 using libretro API pattern from UAE4ALL
+ * Based on DCaSTaway (C) by Chui (Dreamcast)
+ * Changes by Salvacam (C) (Miyoo)
+ * Libretro Implementation (C) 2024 angree (SF2000)
  *
- * (C) 2024 - SF2000 port
  * Original Castaway (C) 1994-2002 Joachim Hoenig, Martin Doering
+ * Original Hatari (C)
  */
 
 #include "libretro.h"
