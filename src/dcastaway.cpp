@@ -6,6 +6,18 @@
 #include "vkbd.h"
 #include "menu.h"
 #include "m68k_intrf.h"
+
+/* SF2000 v014 - NO LOGGING */
+#ifdef SF2000
+extern "C" void sf_notify_vbl(int vbl);
+extern "C" void sf_notify_vbl_done(int vbl);
+#define xlog(...) ((void)0)
+#define XLOG(msg) ((void)0)
+#else
+#define XLOG(msg)
+#define sf_notify_vbl(x) ((void)0)
+#define sf_notify_vbl_done(x) ((void)0)
+#endif
 		
 
 extern unsigned char fdc_motor;
@@ -263,28 +275,37 @@ void init_vid_cycles(void)
 {
 	int i;
 
+	/* SF2000: Use integer math instead of floating point
+	 * Original: pal=168.0/512.0, ntsc=168.0/427.0
+	 * Integer:  ((val * 168) + 256) >> 9  for PAL (512 = 2^9)
+	 *           ((val * 168) + 213) / 427 for NTSC
+	 */
 #ifdef USE_SHORT_SLICE
-	double pal=136.0/512.0;
-	double ntsc=136.0/427.0;
+	#define PAL_NUM 136
+	#define NTSC_NUM 136
 #else
 #ifdef DREAMCAST
-	double pal=160.0/512.0;
-	double ntsc=160.0/427.0;
+	#define PAL_NUM 160
+	#define NTSC_NUM 160
 #else
-	double pal=168.0/512.0;
-	double ntsc=168.0/427.0;
+	#define PAL_NUM 168
+	#define NTSC_NUM 168
 #endif
 #endif
+
 	for(i=0;i<12;i++)
 		vid_cycles_pal[i]=vid_cycles_ntsc[i]=0;
 	for(i=12;i<512-12;i++)
-		vid_cycles_pal[i]=(unsigned char)(((double)i-12)*pal);
+		vid_cycles_pal[i]=(unsigned char)(((i-12) * PAL_NUM + 256) >> 9);
 	for(i=12;i<426-12;i++)
-		vid_cycles_ntsc[i]=(unsigned char)(((double)i-12)*ntsc);
+		vid_cycles_ntsc[i]=(unsigned char)(((i-12) * NTSC_NUM) / 427);
 	for(i=512-12;i<1024;i++)
-		vid_cycles_pal[i]=(unsigned char)(((double)512-12)*pal);
+		vid_cycles_pal[i]=(unsigned char)(((512-12) * PAL_NUM + 256) >> 9);
 	for(i=426-12;i<1024;i++)
-		vid_cycles_ntsc[i]=(unsigned char)(((double)426-12)*pal);
+		vid_cycles_ntsc[i]=(unsigned char)(((426-12) * PAL_NUM) / 427);
+
+#undef PAL_NUM
+#undef NTSC_NUM
 
 	vid_cycle=(unsigned char *)&vid_cycles_pal;
 }
@@ -669,4 +690,403 @@ void emergency_reset(void)
 	if (mainMenu_sound)
 		audio_stop();
 	dcastaway();
+}
+
+/*
+ * =======================================================
+ * LIBRETRO-COMPATIBLE FRAME-BY-FRAME EMULATION
+ * =======================================================
+ * These functions split emulation into init + per-frame
+ * for use with libretro's retro_run() architecture.
+ */
+
+// Persistent state for frame-by-frame emulation
+static int emu_initialized = 0;
+static int emu_hsync = 512;
+static int emu_hbl = 0;
+int emu_hsync_add = 512;  /* v027: Non-static for CPU boost access from libretro */
+int mfp_base_hsync = 512; /* v030: Base hsync for MFP timer compensation (512=PAL, 427=NTSC) */
+static int emu_max_scanline = 264;
+static int emu_sub_scanline = 64;
+static unsigned long emu_cycleco = 0;
+static int emu_vsyncpend = 0;
+static int emu_hsyncpend = 0;
+static int emu_delay_fdc_motor = 0;
+static int emu_timeframe = AUTOFRAME_50;
+
+#ifndef NO_RENDER
+static void (*emu_redraw_func)(int, int) = NULL;
+static void (*emu_real_redraw_func)(int, int) = NULL;
+
+static void emu_redraw_dummy(int a, int b) {
+    (void)a; (void)b;
+}
+
+static void emu_change_redraw_func(void (*new_func)(int, int)) {
+    static int change_count = 0;
+    change_count++;
+    if (change_count <= 10) {
+        xlog("CASTAWAY: change_redraw #%d new=0x%08lx\n", change_count, (unsigned long)new_func);
+    }
+    if (new_func != emu_real_redraw_func) {
+        if (new_func == Redraw_med) {
+            emu_real_redraw_func = new_func;
+            video_change_to_med();
+            mouse_mul = 2;
+        } else if (new_func == Redraw) {
+            emu_real_redraw_func = new_func;
+            video_change_to_low();
+            mouse_mul = 1;
+        }
+    }
+    emu_redraw_func = new_func;
+}
+#endif
+
+void dcastaway_init(void)
+{
+    XLOG("dcastaway_init START");
+    if (emu_initialized) return;
+
+    // Same as dcastaway() but without calling emulate()
+    XLOG("Init()");
+    Init();
+    XLOG("render_init()");
+    render_init();
+    XLOG("events_init()");
+    events_init();
+#ifndef NO_SOUND
+    if (mainMenu_sound)
+        audio_init();
+    else
+#endif
+        SDL_PauseAudio(1);
+    maxframeskip = mainMenu_frameskip;
+
+    // Initialize emulation state (from emulate())
+    emu_hsync = 512;
+    emu_hbl = 0;
+    emu_hsync_add = 512;
+    mfp_base_hsync = 512;  /* v030: Initialize base hsync for MFP timing */
+    emu_max_scanline = 264;
+    emu_sub_scanline = 64;
+    emu_cycleco = 0;
+    emu_vsyncpend = 0;
+    emu_hsyncpend = 0;
+    emu_delay_fdc_motor = 0;
+
+#ifndef NO_RENDER
+    emu_redraw_func = emu_redraw_dummy;
+    emu_real_redraw_func = emu_redraw_dummy;
+#endif
+
+    XLOG("init_vid_cycles()");
+    reset_frameskip();
+    waitstate = 0;
+    init_vid_cycles();
+    cyclenext = emu_hsync;
+    vid_adr_cycleyet = 0;
+    emulating = 1;
+
+    XLOG("render_blank_screen()");
+    render_blank_screen();
+
+    emu_initialized = 1;
+    XLOG("dcastaway_init DONE");
+}
+
+void dcastaway_one_frame(void)
+{
+    unsigned long oldpend, newpend;
+    int frame_done = 0;
+    static int frame_count = 0;
+
+    if (!emu_initialized || !emulating) return;
+
+    frame_count++;
+    if (frame_count <= 5) {
+        xlog("CASTAWAY: one_frame #%d START\n", frame_count);
+    }
+
+    // Run emulation until one frame (vblank) is complete
+    while (!frame_done && emulating)
+    {
+        if (frame_count <= 5) {
+            xlog("CASTAWAY: cpu_loop enter\n");
+        }
+        emu_cycleco = cpu_loop(cyclenext);
+        if (frame_count <= 5) {
+            xlog("CASTAWAY: cpu_loop exit cycles=%lu\n", emu_cycleco);
+        }
+        emu_cycleco += waitstate;
+        waitstate = 0;
+
+        /* v032: Calculate "real time" cycles for MFP and Sound with CPU boost compensation
+         * MFP timers and Sound should run at "real 8MHz" rate, not boosted rate.
+         * Formula: real_cycles = emu_cycleco * mfp_base_hsync / emu_hsync_add
+         * - When no boost: real_cycles = emu_cycleco * 512 / 512 = emu_cycleco (unchanged)
+         * - With 2x boost: real_cycles = emu_cycleco * 512 / 1024 = emu_cycleco / 2
+         * This keeps MFP timers and sound playback at correct real-time rate.
+         */
+        unsigned long mfp_cycles = (emu_cycleco * mfp_base_hsync) / emu_hsync_add;
+
+#ifndef NO_SOUND
+        SoundCycles += mfp_cycles;  /* v032: Use compensated cycles for correct sound timing */
+#endif
+
+        // MFP timer A delay mode
+        if (mfp_ascale > 1) {
+            mfp_acount -= mfp_ascale * mfp_cycles;  /* v030: Use compensated cycles */
+            if (mfp_acount <= 0) {
+                do { mfp_acount += mfp_tadr; } while (mfp_acount <= 0);
+                oldpend = mfp_ipra;
+                newpend = (oldpend | 0x20) & mfp_iera;
+                if (newpend != oldpend) {
+                    mfp_ipra = newpend;
+                }
+            }
+        }
+
+        // MFP timer B delay mode
+        if (mfp_bscale > 1) {
+            mfp_bcount -= mfp_bscale * mfp_cycles;  /* v030: Use compensated cycles */
+            if (mfp_bcount <= 0) {
+                do { mfp_bcount += mfp_tbdr; } while (mfp_bcount <= 0);
+                oldpend = mfp_ipra;
+                newpend = (oldpend | 0x1) & mfp_iera;
+                if (newpend != oldpend) {
+                    mfp_ipra = newpend;
+                }
+            }
+        }
+
+        // MFP timer C delay mode
+        if (mfp_cscale > 1) {
+            mfp_ccount -= mfp_cscale * mfp_cycles;  /* v030: Use compensated cycles */
+            if (mfp_ccount <= 0) {
+                do { mfp_ccount += mfp_tcdr; } while (mfp_ccount <= 0);
+                oldpend = mfp_iprb;
+                newpend = (oldpend | 0x20) & mfp_ierb;
+                if (newpend != oldpend) {
+                    mfp_iprb = newpend;
+                }
+            }
+        }
+
+        // MFP timer D delay mode
+        if (mfp_dscale > 1) {
+            mfp_dcount -= mfp_dscale * mfp_cycles;  /* v030: Use compensated cycles */
+            if (mfp_dcount <= 0) {
+                do { mfp_dcount += mfp_tddr; } while (mfp_dcount <= 0);
+                oldpend = mfp_iprb;
+                newpend = (oldpend | 0x10) & mfp_ierb;
+                if (newpend != oldpend) {
+                    mfp_iprb = newpend;
+                }
+            }
+        }
+
+        vid_adr += (vid_cycle[emu_cycleco] - vid_adr_cycleyet) & (~3);
+        vid_adr_cycleyet = 0;
+        emu_hsync -= emu_cycleco;
+
+        if (emu_hsync <= 0) {
+            emu_hbl++;
+            emu_hsync += emu_hsync_add;
+
+            // Generate hbl interrupt
+#ifdef USE_FAME_CORE
+            Interrupt(AUTOINT2, 2);
+#endif
+
+            // Do IO every 64 hbls
+            if (!(emu_hbl & 63)) {
+                if (!(mfp_gpip & 0x20)) {
+                    mfp_iprb |= 0x80;
+                    mfp_iprb &= mfp_ierb;
+                }
+                IkbdWriteBuffer();
+                if (!(mfp_gpip & 0x10)) {
+                    mfp_iprb |= 0x40;
+                    mfp_iprb &= mfp_ierb;
+                }
+            }
+
+            if (emu_hbl < 64) {
+                vid_adr = (vid_baseh << 16) + (vid_basem << 8);
+            } else if (emu_hbl < emu_max_scanline) {
+                vid_adr = (vid_baseh << 16) + (vid_basem << 8) + (emu_hbl - 63) * 160;
+#ifndef NO_RENDER
+                if (emu_redraw_func) {
+                    /* DIAGNOSTIC: Log and validate function pointer */
+                    unsigned long ptr_val = (unsigned long)emu_redraw_func;
+                    if (ptr_val < 0x87000000 || ptr_val > 0x870A0000) {
+                        xlog("CASTAWAY: BAD REDRAW PTR! ptr=0x%08lx hbl=%d\n", ptr_val, emu_hbl);
+                    }
+                    (*emu_redraw_func)(emu_hbl - emu_sub_scanline, vid_adr - 160);
+                }
+#endif
+                // Timer-A event count mode
+                if (mfp_tacr == 0x8) {
+                    mfp_acount -= 1 << 20;
+                    if (mfp_acount <= 0) {
+                        mfp_acount += mfp_tadr;
+                        oldpend = mfp_ipra;
+                        newpend = (oldpend | 0x20) & mfp_iera;
+                        if (newpend != oldpend) {
+                            mfp_ipra = newpend;
+                        }
+                    }
+                }
+                // Timer-B event count mode
+                if (mfp_tbcr == 0x8) {
+                    mfp_bcount -= 1 << 20;
+                    if (mfp_bcount <= 0) {
+                        mfp_bcount += mfp_tbdr;
+                        oldpend = mfp_ipra;
+                        newpend = (oldpend | 0x1) & mfp_iera;
+                        if (newpend != oldpend) {
+                            mfp_ipra = newpend;
+                        }
+                    }
+                }
+            }
+            // Vertical blank - END OF FRAME
+            else if (emu_hbl >= 313) {
+                static int vbl_count = 0;
+                vbl_count++;
+                if (vbl_count <= 5) {
+                    xlog("CASTAWAY: VBL #%d\n", vbl_count);
+                }
+                Draw_border(draw_border);
+                do_events();
+
+                if (!frameskip) {
+#if defined(USE_DOUBLE_BUFFER) || defined(ALWAYS_LOW)
+                    render_status();
+#endif
+                }
+
+                frameskip--;
+                Sound_Update_VBL();
+
+                if (fdc_commands_executed) {
+                    fdc_commands_executed--;
+                    if (!fdc_commands_executed)
+                        drawDiskEmpty();
+                }
+
+                if (maxframeskip < 0)
+                    frameskip = 0;  // No auto frameskip in libretro
+                else if (frameskip < 0)
+                    frameskip = maxframeskip;
+
+#ifndef NO_RENDER
+                if (!frameskip) {
+                    if (vid_shiftmode == COL2)
+                        emu_change_redraw_func(Redraw_med);
+                    else
+                        emu_change_redraw_func(Redraw);
+                } else {
+                    emu_change_redraw_func(emu_redraw_dummy);
+                }
+#endif
+
+                emu_hbl = 0;
+
+                if (mainMenu_savedisk)
+                    check_disc_write();
+
+#ifdef USE_FAME_CORE
+                sf_notify_vbl(vbl_count);
+                Interrupt(AUTOINT4, 4);
+                sf_notify_vbl_done(vbl_count);
+#endif
+
+                // FDC spinup
+                if (fdc_motor) {
+                    if (emu_delay_fdc_motor > 150) {
+                        fdc_status &= ~0x80;
+                        emu_delay_fdc_motor = 0;
+                        fdc_motor = 0;
+                    } else {
+                        emu_delay_fdc_motor++;
+                    }
+                }
+
+                if (vid_syncmode & 2) {
+                    /* v031: Removed emu_hsync_add reset - now controlled by apply_cpu_boost() */
+                    mfp_base_hsync = 512;  /* v030: Set base for MFP timing */
+                    emu_timeframe = AUTOFRAME_50;
+                    nScreenRefreshRate = 50;
+                    vid_cycle = (unsigned char *)&vid_cycles_pal;
+                } else {
+                    /* v031: Removed emu_hsync_add reset - now controlled by apply_cpu_boost() */
+                    mfp_base_hsync = 427;  /* v030: Set base for MFP timing */
+                    emu_timeframe = AUTOFRAME_60;
+                    nScreenRefreshRate = 60;
+                    vid_cycle = (unsigned char *)&vid_cycles_ntsc;
+                }
+
+                if (maybe_border > 1) {
+                    if (draw_border < 16)
+                        draw_border += 4;
+                } else if (draw_border) {
+                    draw_border--;
+                }
+
+                if (draw_border) {
+                    emu_max_scanline = 304;
+                    emu_sub_scanline = 84;
+                } else {
+                    emu_max_scanline = 264;
+                    emu_sub_scanline = 64;
+                }
+                maybe_border = 0;
+
+                // FRAME COMPLETE - exit the loop
+                frame_done = 1;
+            }
+        }
+
+        // Recalculate interrupts
+        {
+            int mfp_int = 0;
+            if (6 > GetI()) {
+                int number;
+                uint16 imr, ipr, isr, irr;
+                int in_request;
+
+                imr = (mfp_imra << 8) + mfp_imrb;
+                ipr = (mfp_ipra << 8) + mfp_iprb;
+                irr = imr & ipr;
+                isr = (mfp_isra << 8) + mfp_isrb;
+
+                if (irr > isr) {
+                    for (in_request = 15; in_request > 0; in_request--) {
+                        if (irr & 0x8000) break;
+                        irr <<= 1;
+                    }
+                    isr = 1 << in_request;
+
+                    if (mfp_ivr & 0x8) {
+                        mfp_isra |= isr >> 8;
+                        mfp_isrb |= isr;
+                    } else {
+                        mfp_isra &= (~isr) >> 8;
+                        mfp_isrb &= ~isr;
+                    }
+
+                    mfp_ipra &= ~(isr >> 8);
+                    mfp_iprb &= ~isr;
+
+                    number = in_request | (mfp_ivr & 0xf0);
+                    Interrupt(number, 6);
+                    mfp_int = 1;
+                }
+            }
+        }
+
+        cyclenext = emu_hsync;
+    }
 }

@@ -6,8 +6,29 @@
 
 #ifdef USE_LZMA
 #include "lzma/lzma.h"
-#else
+#elif !defined(NO_ZLIB)
 #include <zlib.h>
+#else
+/* NO_ZLIB stubs */
+typedef unsigned char Bytef;
+typedef unsigned long uLongf;
+#define Z_BEST_COMPRESSION 9
+#define Z_OK 0
+static inline int compress2(Bytef *dest, uLongf *destLen, const Bytef *source, uLongf sourceLen, int level) {
+    (void)level;
+    /* No compression - just copy if space allows */
+    if (*destLen < sourceLen) return -1;
+    memcpy(dest, source, sourceLen);
+    *destLen = sourceLen;
+    return Z_OK;
+}
+static inline int uncompress(Bytef *dest, uLongf *destLen, const Bytef *source, uLongf sourceLen) {
+    /* No compression - just copy */
+    if (*destLen < sourceLen) return -1;
+    memcpy(dest, source, sourceLen);
+    *destLen = sourceLen;
+    return Z_OK;
+}
 #endif
 
 #ifdef DREAMCAST

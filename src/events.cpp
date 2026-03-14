@@ -904,8 +904,8 @@ void do_events (void)
              		IkbdMousePress(1);
 			break;
 		}
-		else
 #ifndef NO_VKBD
+		else
 		if (vkbd_mode)
 		{
 			vkbd_move=VKBD_BUTTON3;

@@ -21,8 +21,12 @@ extern unsigned screen_pitch, screen_width, screen_height;
 extern unsigned cyclenext;
 extern unsigned vid_adr_cycleyet;
 extern unsigned char *vid_cycle;
+extern int emu_hsync_add;     /* v027: CPU cycles per HBL (boosted value) */
+extern int mfp_base_hsync;    /* v030: Base HBL cycles for MFP timing (512=PAL, 427=NTSC) */
 
 void dcastaway(void);
+void dcastaway_init(void);        // Initialize emulator (call once)
+void dcastaway_one_frame(void);   // Run one frame (call from retro_run)
 void emergency_reset(void);
 void events_init(void);
 void do_events(void);

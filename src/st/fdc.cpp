@@ -17,7 +17,9 @@ static char     sccsid[] = "$Id: fdc.c,v 1.2 2002/06/08 23:31:58 jhoenig Exp $";
 #include <string.h>
 #include <malloc.h>
 #include "config.h"
+#ifndef NO_ZLIB
 #include "unzip.h"
+#endif
 #include "st.h"
 #include "savedisk.h"
 
@@ -112,12 +114,13 @@ int discseek(int discn,int pos,int a)
 	return 0;
 }
 
+#ifndef NO_ZLIB
 int unzipdisk(unsigned char *RomPath,unsigned char *buf)
 {
     unzFile fp;
     unsigned long gROMLength; //size in bytes of the ROM
 
-	
+
 	if(fp = unzOpen((const char *)RomPath))
 	{
 		unsigned char szFileName[256];
@@ -130,7 +133,7 @@ int unzipdisk(unsigned char *RomPath,unsigned char *buf)
 				{
 					if(strcasecmp((const char *)&szFileName[strlen((const char *)szFileName) - 3],".st") == 0||strcasecmp((const char *)&szFileName[strlen((const char *)szFileName) - 4],".msa") == 0)
 					{
-						gROMLength = file_info.uncompressed_size; 
+						gROMLength = file_info.uncompressed_size;
 						if(unzOpenCurrentFile(fp)== UNZ_OK)
 						{
 							if(unzReadCurrentFile(fp,buf ,gROMLength) == (int)( gROMLength))
@@ -164,6 +167,13 @@ int unzipdisk(unsigned char *RomPath,unsigned char *buf)
 	}
 	return 0;
 }
+#else
+/* NO_ZLIB - stub unzipdisk that returns 0 (no zip support) */
+int unzipdisk(unsigned char *RomPath,unsigned char *buf)
+{
+	return 0;
+}
+#endif
 
 int MSA_UnCompress(unsigned char *pBuffer)
 {

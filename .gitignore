@@ -1,3 +1,31 @@
+# Compiled object files
 *.o
-*.a
+*.obj
 
+# Static libraries
+*.a
+*.lib
+
+# Executables and binaries
+*.exe
+*.elf
+*.bin
+core_87000000
+
+# Build artifacts
+*.map
+*.d
+
+# Linker files (platform-specific, get from multicore repos)
+linker/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db

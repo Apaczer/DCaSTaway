@@ -38,5 +38,11 @@ void vkbd_init_button2(void);
 #define vkbd_quit()
 #define vkbd_redraw()
 #define vkbd_init_button2()
+#define vkbd_mouse()
+#define vkbd_process() 0
+
+/* Stubs for NO_VKBD mode */
+static int vkbd_mode = 0;
+static int vkbd_move = 0;
 
 #endif

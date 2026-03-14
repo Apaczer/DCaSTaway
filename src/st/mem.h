@@ -29,6 +29,9 @@ void MemQuit(void);
 void MemClean(void);
 void MemReInit(void);
 
+/* ROM path - can be set before MemInit() to override default */
+extern char rom[80];
+
 extern unsigned short int TosVersion; 
 extern short TosCountry;
 void TOS_FixRom(uint8 *TosAddress);
