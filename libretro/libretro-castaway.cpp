@@ -844,8 +844,8 @@ void retro_init(void)
         { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "Right" },
         { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A,     "Fire" },
         { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B,     "Fire 2" },
-        { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START, "Menu" },
-        { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT,"Select" },
+        { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START, "VKBD" },
+        //{ 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, " " },
         { 0, 0, 0, 0, NULL }
     };
     environ_cb(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, desc);
@@ -1009,8 +1009,8 @@ static void poll_input(void)
         lr_hold_frames = 0;
     }
 
-    /* SELECT = toggle virtual keyboard (edge triggered) - v019 */
-    if (cur_select && !prev_select) {
+    /* START = toggle virtual keyboard (edge triggered) - v019 */
+    if (cur_start && !prev_select) {
         vkbd_active = !vkbd_active;
         /* Release any held key when closing VKBD */
         if (!vkbd_active) {
@@ -1031,12 +1031,12 @@ static void poll_input(void)
             }
         }
     }
-    prev_select = cur_select;
+    prev_select = cur_start;
 
-    if (cur_start && !prev_start && !vkbd_active) {
+    if (cur_select && !prev_start && !vkbd_active) {
         ; // TODO: use for some action
     }
-    prev_start = cur_start;
+    prev_start = cur_select;
 
     /* L = LMB, R = RMB (always, like UAE4ALL)
      * IKBD protocol: bit 0 = RMB, bit 1 = LMB
@@ -1253,6 +1253,7 @@ static void poll_input(void)
     libretro_input_state[RETRO_DEVICE_ID_JOYPAD_A]      = cur_a;
     libretro_input_state[RETRO_DEVICE_ID_JOYPAD_B]      = cur_b;
     libretro_input_state[RETRO_DEVICE_ID_JOYPAD_START]  = cur_start;
+    libretro_input_state[RETRO_DEVICE_ID_JOYPAD_SELECT] = cur_select;    
     libretro_input_state[RETRO_DEVICE_ID_JOYPAD_L]      = cur_l;
     libretro_input_state[RETRO_DEVICE_ID_JOYPAD_R]      = cur_r;
 
