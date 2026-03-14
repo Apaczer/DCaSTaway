@@ -13,6 +13,7 @@
 *.exe
 *.elf
 *.bin
+dcastaway
 core_87000000
 
 # Build artifacts

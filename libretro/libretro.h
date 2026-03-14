@@ -1,4 +1,4 @@
-/* libretro.h - Libretro API header for Castaway SF2000 */
+/* libretro.h - Libretro API header */
 
 #ifndef LIBRETRO_H__
 #define LIBRETRO_H__

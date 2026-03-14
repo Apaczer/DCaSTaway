@@ -7,7 +7,7 @@
 #define SDL_LIL_ENDIAN 1234
 #define SDL_BIG_ENDIAN 4321
 
-/* SF2000 is little endian */
+/* SF2000/Miyoo is little endian */
 #define SDL_BYTEORDER SDL_LIL_ENDIAN
 
 /* Byte swapping functions */

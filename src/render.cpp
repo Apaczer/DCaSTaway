@@ -11,9 +11,13 @@
 #define WRL(A, B) ((A)|(((unsigned)(B)) << 16))
 #endif
 
+#ifdef __LIBRETRO__
 /* screen pointer is set by libretro wrapper - do NOT initialize to NULL here!
  * UAE4ALL pattern: extern pointer set during retro_load_game() */
 extern SDL_Surface *screen;
+#else
+SDL_Surface *screen=NULL;
+#endif
 static unsigned int screen_buffer, screen_add=20;
 
 unsigned screen_pitch, screen_width, screen_height;
@@ -22,11 +26,6 @@ static unsigned long vm2bm1[256];
 static unsigned long vm2bm2[256];
 
 static unsigned short pal16[16]={ 0, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768 };
-
-/* Lookup table for 3-bit Atari ST color (0-7) to 8-bit RGB (0-255)
- * Replaces floating point: 36.428 * value -> color_3bit_to_8bit[value]
- * SF2000 MIPS has no FPU, so we must avoid all float/double operations */
-static const unsigned char color_3bit_to_8bit[8] = {0, 36, 73, 109, 146, 182, 219, 255};
 
 unsigned short render_pal16_copy0=0;
 
@@ -373,9 +372,10 @@ void video_change_to_low(void)
 		SDL_FreeSurface(old);
 */
 #else
-// ALWAYS_LOW - SF2000/libretro path:
+// ALWAYS_LOW - libretro path:
 	if (actual_is_med)
 		free((void *)screen_buffer);
+#ifdef __LIBRETRO__
 	// Initialize screen if not already set (critical for libretro!)
 	if (!screen) {
 		screen = SDL_SetVideoMode(320, 240, 16, SDL_HWSURFACE);
@@ -383,6 +383,7 @@ void video_change_to_low(void)
 	if (!screen) {
 		return;
 	}
+#endif
 	actual_is_med=0;
 #endif
 	SDL_FillRect(screen,NULL,0);
@@ -512,7 +513,7 @@ void video_change_to_menu(void)
 		exit(1);
 	}
 #else
-//ALWAYS_LOW - SF2000/libretro path:
+//ALWAYS_LOW - libretro path:
 	if (actual_is_med)
 		free((void *)screen_buffer);
 	// Initialize screen if not already set (critical for libretro!)
@@ -602,11 +603,17 @@ void Redraw ( int row, int vid_adr )
 		vid_flag = 0;
 		register unsigned i;
 		for (i = 0; i < 16; i++) {
-			/* SF2000: Use integer lookup table instead of floating point */
-			unsigned b = color_3bit_to_8bit[vid_col[i] & 0x7];
-			unsigned g = color_3bit_to_8bit[(vid_col[i] >> 4) & 0x7];
-			unsigned r = color_3bit_to_8bit[(vid_col[i] >> 8) & 0x7];
+#ifndef DREAMCAST
+            		unsigned b = (unsigned)(36.428 * (double)((vid_col[i] & 0x7)));
+            		unsigned g = (unsigned)(36.428 * (double)(((vid_col[i] >> 4) & 0x7)));
+            		unsigned r = (unsigned)(36.428 * (double)(((vid_col[i] >> 8) & 0x7)));
 			pal16[i]=(unsigned short)SDL_MapRGB(screen->format,r,g,b);
+#else
+            		register unsigned b = (unsigned)(4.4286 * (double)((vid_col[i] & 0x7)));
+            		register unsigned g = 9 * (unsigned)(((vid_col[i] >> 4) & 0x7));
+            		register unsigned r = (unsigned)(4.4286 * (double)(((vid_col[i] >> 8) & 0x7)));
+			pal16[i]= (r<<11)|(g<<5)|(b);
+#endif
 		}
 	}
 	{
@@ -726,11 +733,17 @@ void Redraw_med ( int row, int vid_adr )
 		unsigned char i,r, g, b;
 		vid_flag = 0;
 		for (i = 0; i < 4; i++) {
-			/* SF2000: Use integer lookup table instead of floating point */
-			unsigned b = color_3bit_to_8bit[vid_col[i] & 0x7];
-			unsigned g = color_3bit_to_8bit[(vid_col[i] >> 4) & 0x7];
-			unsigned r = color_3bit_to_8bit[(vid_col[i] >> 8) & 0x7];
+#ifndef DREAMCAST
+            		unsigned b = (unsigned)(36.428 * (double)((vid_col[i] & 0x7)));
+            		unsigned g = (unsigned)(36.428 * (double)(((vid_col[i] >> 4) & 0x7)));
+            		unsigned r = (unsigned)(36.428 * (double)(((vid_col[i] >> 8) & 0x7)));
 			pal16[i]=(unsigned short)SDL_MapRGB(screen->format,r,g,b);
+#else
+            		register unsigned b = (unsigned)(4.4286 * (double)((vid_col[i] & 0x7)));
+            		register unsigned g = 9 * (unsigned)(((vid_col[i] >> 4) & 0x7));
+            		register unsigned r = (unsigned)(4.4286 * (double)(((vid_col[i] >> 8) & 0x7)));
+			pal16[i]= (r<<11)|(g<<5)|(b);
+#endif
 		}
 	}
 	{

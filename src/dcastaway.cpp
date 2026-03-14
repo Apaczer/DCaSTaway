@@ -276,37 +276,29 @@ void init_vid_cycles(void)
 {
 	int i;
 
-	/* SF2000: Use integer math instead of floating point
-	 * Original: pal=168.0/512.0, ntsc=168.0/427.0
-	 * Integer:  ((val * 168) + 256) >> 9  for PAL (512 = 2^9)
-	 *           ((val * 168) + 213) / 427 for NTSC
-	 */
 #ifdef USE_SHORT_SLICE
-	#define PAL_NUM 136
-	#define NTSC_NUM 136
+	double pal=136.0/512.0;
+	double ntsc=136.0/427.0;
 #else
 #ifdef DREAMCAST
-	#define PAL_NUM 160
-	#define NTSC_NUM 160
+	double pal=160.0/512.0;
+	double ntsc=160.0/427.0;
 #else
-	#define PAL_NUM 168
-	#define NTSC_NUM 168
+	double pal=168.0/512.0;
+	double ntsc=168.0/427.0;
 #endif
 #endif
 
 	for(i=0;i<12;i++)
 		vid_cycles_pal[i]=vid_cycles_ntsc[i]=0;
 	for(i=12;i<512-12;i++)
-		vid_cycles_pal[i]=(unsigned char)(((i-12) * PAL_NUM + 256) >> 9);
+		vid_cycles_pal[i]=(unsigned char)(((double)i-12)*pal);
 	for(i=12;i<426-12;i++)
-		vid_cycles_ntsc[i]=(unsigned char)(((i-12) * NTSC_NUM) / 427);
+		vid_cycles_ntsc[i]=(unsigned char)(((double)i-12)*ntsc);
 	for(i=512-12;i<1024;i++)
-		vid_cycles_pal[i]=(unsigned char)(((512-12) * PAL_NUM + 256) >> 9);
+		vid_cycles_pal[i]=(unsigned char)(((double)512-12)*pal);
 	for(i=426-12;i<1024;i++)
-		vid_cycles_ntsc[i]=(unsigned char)(((426-12) * PAL_NUM) / 427);
-
-#undef PAL_NUM
-#undef NTSC_NUM
+		vid_cycles_ntsc[i]=(unsigned char)(((double)426-12)*pal);
 
 	vid_cycle=(unsigned char *)&vid_cycles_pal;
 }
