@@ -92,6 +92,17 @@ static retro_audio_sample_batch_t audio_batch_cb;
 static retro_input_poll_t input_poll_cb;
 static retro_input_state_t input_state_cb;
 
+/* Libretro options v1 */
+static const struct retro_variable vars[] = {
+    { "dcastaway_frameskip", "Frameskip; OFF|1|2|3|4|5|6|7|8" },
+    { "dcastaway_cpu_boost", "CPU overclock; OFF|1.2X|1.5X|2X" },
+    { "dcastaway_input_mode", "Input mode; Joystick|Mouse" },
+    { "dcastaway_player2_enabled", "2nd player joystick; OFF|ON" },
+    { "dcastaway_fps_show", "Internal FPS display; OFF|ON" },
+
+    { NULL }
+};
+
 /* Input state for Castaway */
 int libretro_input_state[16];
 
@@ -129,7 +140,7 @@ static int opt_player2_enabled = 0;  /* 0=disabled, 1=enabled */
 static int opt_frameskip = 0;  /* Default: no frameskip */
 
 /* v023: FPS counter (ON by default, like QPSX) */
-static int fps_show = 1;        /* 1=show FPS, 0=hide */
+static int fps_show = 0;        /* 1=show FPS, 0=hide */
 static int fps_current = 0;     /* Current FPS value */
 static int fps_frame_count = 0; /* Frame counter for FPS calc */
 static int fps_last_frame = 0;  /* libretro_frame_count at last FPS update */
@@ -958,12 +969,7 @@ void retro_set_environment(retro_environment_t cb)
 {
     environ_cb = cb;
 
-    struct retro_variable variables[] = {
-        { "castaway_frameskip", "Frameskip; 0|1|2|3|4" },
-        { NULL, NULL },
-    };
-
-    cb(RETRO_ENVIRONMENT_SET_VARIABLES, variables);
+    environ_cb(RETRO_ENVIRONMENT_SET_VARIABLES, (void *)vars);
 }
 
 void retro_set_video_refresh(retro_video_refresh_t cb)
@@ -1625,13 +1631,83 @@ static void draw_fps_overlay(uint16_t *fb)
     draw_text(fb, 4, 3, buf, col);
 }
 
+static void check_variables(void)
+{
+    struct retro_variable var = {0};
+
+    var.key = "dcastaway_frameskip";
+    var.value = NULL;
+
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+    {
+        if (strcmp(var.value, "OFF") == 0)
+            opt_frameskip = 0;
+        else
+            opt_frameskip = atoi(var.value);
+    }
+
+    var.key = "dcastaway_cpu_boost";
+    var.value = NULL;
+
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+    {
+        if (strcmp(var.value, "OFF") == 0)
+            opt_cpu_boost = 0;
+        else if (strcmp(var.value, "1.2X") == 0)
+            opt_cpu_boost = 1;
+        else if (strcmp(var.value, "1.5X") == 0)
+            opt_cpu_boost = 2;
+        else if (strcmp(var.value, "2X") == 0)
+            opt_cpu_boost = 3;
+    }
+
+    var.key = "dcastaway_input_mode";
+    var.value = NULL;
+
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+    {
+        if (strcmp(var.value, "Joystick") == 0)
+            opt_input_mode = 0;
+        else if (strcmp(var.value, "Mouse") == 0)
+            opt_input_mode = 1;
+    }
+
+    var.key = "dcastaway_player2_enabled";
+    var.value = NULL;
+
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+    {
+        if (strcmp(var.value, "OFF") == 0)
+            opt_player2_enabled = 0;
+        else if (strcmp(var.value, "ON") == 0)
+            opt_player2_enabled = 1;
+    }
+
+    var.key = "dcastaway_fps_show";
+    var.value = NULL;
+
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+    {
+        if (strcmp(var.value, "OFF") == 0)
+            fps_show = 0;
+        else if (strcmp(var.value, "ON") == 0)
+            fps_show = 1;
+    }
+}
+
 /*
  * Main run loop - called ~50 times per second
  */
 
 void retro_run(void)
 {
+    bool update = false;
     static int Deffered = 0;
+
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &update) && update) {
+        check_variables();
+        apply_frameskip();
+    }
 
     libretro_frame_count++;
 
