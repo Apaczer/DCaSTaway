@@ -824,7 +824,7 @@ void retro_init(void)
 {
     /* Get directories from libretro frontend */
     if (environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &system_directory) && system_directory) {
-        snprintf(tos_rom_path, sizeof(tos_rom_path), "%s/tos.rom", system_directory);
+        snprintf(tos_rom_path, sizeof(tos_rom_path), "%s/dcastaway/tos.rom", system_directory);
     } else {
         strcpy(tos_rom_path, "./tos.rom");
     }
