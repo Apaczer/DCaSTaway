@@ -397,6 +397,7 @@ static void draw_rect(uint16_t *fb, int x, int y, int w, int h, uint16_t color) 
 #define COLOR_DKBLUE  0x000A
 #define COLOR_RED     0xF800  /* v029: For warnings */
 
+#ifdef SF2000
 static void sf2000_draw_menu(uint16_t *fb) {
     /* Menu background */
     draw_rect(fb, 20, 40, 280, 170, COLOR_DKBLUE);
@@ -498,6 +499,7 @@ static void sf2000_draw_menu(uint16_t *fb) {
     /* Footer - v028: moved lower to not overlap EXIT MENU */
     draw_text(fb, 30, 198, "UP/DN:SEL A:OK B:EXIT", COLOR_GRAY);
 }
+#endif
 
 /*===========================================================================*/
 /* VIRTUAL KEYBOARD DRAWING - v019                                            */
@@ -1257,11 +1259,17 @@ static void poll_input(void)
     }
     prev_select = cur_select;
 
+#ifdef SF2000
     /* START = toggle menu (edge triggered) */
     if (cur_start && !prev_start && !vkbd_active) {
         sf2000_menu_active = !sf2000_menu_active;
         sf2000_menu_item = 0;
     }
+#else
+    if (cur_start && !prev_start && !vkbd_active) {
+        ; // TODO: use for some action
+    }
+#endif
     prev_start = cur_start;
 
     /* L = LMB, R = RMB (always, like UAE4ALL)
@@ -1285,6 +1293,7 @@ static void poll_input(void)
     }
     prev_r = cur_r;
 
+#ifdef SF2000
     /* Don't process game input if menu is active */
     if (sf2000_menu_active) {
         /* Menu navigation */
@@ -1375,6 +1384,7 @@ static void poll_input(void)
         prev_b = cur_b;
         return;  /* Don't process game input */
     }
+#endif
 
     /* v019: Virtual Keyboard input handling */
     if (vkbd_active) {
@@ -1674,10 +1684,12 @@ void retro_run(void)
      * If screen_add=20: content at rows 20-219, borders at 0-19 and 220-239
      * If screen_add=0: content may span full 0-239 (overscan mode) */
 
+#ifdef SF2000
     /* Draw menu overlay if active */
     if (sf2000_menu_active) {
         sf2000_draw_menu(frame_buffer);
     }
+#endif
 
     /* v019: Draw virtual keyboard if active */
     if (vkbd_active) {
