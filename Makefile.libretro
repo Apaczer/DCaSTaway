@@ -5,22 +5,7 @@ NAME    = dcastaway
 O       = o
 RM      = rm -f
 
-# SF2000 platform - MIPS32 bare metal
-ifeq ($(platform), sf2000)
-    TARGET := $(NAME)_libretro_$(platform).a
-    MIPS := /tmp/mips32-mti-elf/2019.09-03-2/bin/mips-mti-elf-
-    CC = $(MIPS)gcc
-    CXX = $(MIPS)g++
-    AR = $(MIPS)ar
-
-    # MIPS32 flags - soft-float, no FPU (same as UAE4ALL)
-    CFLAGS += -EL -march=mips32 -mtune=mips32 -msoft-float -ffast-math
-    CFLAGS += -G0 -mno-abicalls -fno-pic
-    CFLAGS += -ffunction-sections -fdata-sections
-    CFLAGS += -fomit-frame-pointer
-    CFLAGS += -DSF2000 -DNO_THREADS
-    STATIC_LINKING = 1
-else ifeq ($(platform), miyoo)
+ifeq ($(platform), miyoo)
    TARGET := $(NAME)_libretro.so
    CC = /opt/miyoo/usr/bin/arm-linux-gcc
    CXX = /opt/miyoo/usr/bin/arm-linux-g++
@@ -57,8 +42,7 @@ CFLAGS += -DDATA_PREFIX=\"./data/\"
 CFLAGS += -DSAVE_PREFIX=\"./\"
 CFLAGS += -DFILE_SEPARATOR=\"/\"
 
-# Disable features not needed for SF2000
-# Sound enabled in v017! Uses libretro audio push model
+# Disable features not needed in LIBRETRO
 # CFLAGS += -DNO_SOUND
 CFLAGS += -DNO_MENU
 CFLAGS += -DNO_VKBD

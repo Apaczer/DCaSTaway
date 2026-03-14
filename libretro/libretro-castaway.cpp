@@ -16,7 +16,7 @@
 #include <string.h>
 #include <stdint.h>
 
-/* Include Castaway headers for proper declarations */
+/* Include DCastaway headers for proper declarations */
 #include "config.h"
 #include "st/st.h"
 #include "st/mem.h"
@@ -36,30 +36,9 @@ extern int nGeneratedSamples;
 static void libretro_push_audio(void);
 #endif
 
-/* SF2000 diagnostic macros - UAE4ALL pattern */
-#ifdef SF2000
-extern "C" void xlog(const char *fmt, ...);
-#define XLOG(msg) xlog("CASTAWAY: %s\n", msg)
-#define DIAG(msg) xlog("CASTAWAY: %s\n", msg)
-
-/* v022: SF2000 firmware filesystem functions for per-game config */
-extern "C" int fs_open(const char *path, int flags, int perms);
-extern "C" ssize_t fs_read(int fd, void *buf, size_t count);
-extern "C" ssize_t fs_write(int fd, const void *buf, size_t count);
-extern "C" int fs_close(int fd);
-extern "C" int fs_mkdir(const char *path, int mode);
-extern "C" void fs_sync(const char *path);
-
-#define FS_O_RDONLY 0x0000
-#define FS_O_WRONLY 0x0001
-#define FS_O_RDWR   0x0002
-#define FS_O_CREAT  0x0100
-#define FS_O_TRUNC  0x0200
-
-#else
+/* Log diagnostic macros - UAE4ALL pattern */
 #define XLOG(msg)
 #define DIAG(msg)
-#endif
 
 /* v022: Castaway frameskip variables (from events.cpp and dcastaway.cpp) */
 extern int mainMenu_frameskip;
@@ -76,7 +55,7 @@ extern int frameskip;     /* v024: Current frameskip counter */
 #define membase_ptr ((unsigned char*)membase)
 
 /* Framebuffer: 320x200 for low res, 640x400 for high res */
-/* We'll use 320x240 to match SF2000 screen */
+/* We'll use 320x240 to match small handheld screens */
 #define CASTAWAY_WIDTH  320
 #define CASTAWAY_HEIGHT 200
 #define SCREEN_HEIGHT   240
@@ -98,7 +77,6 @@ static const struct retro_variable vars[] = {
     { "dcastaway_cpu_boost", "CPU overclock; OFF|1.2X|1.5X|2X" },
     { "dcastaway_input_mode", "Input mode; Joystick|Mouse" },
     { "dcastaway_player2_enabled", "2nd player joystick; OFF|ON" },
-    { "dcastaway_fps_show", "Internal FPS display; OFF|ON" },
 
     { NULL }
 };
@@ -123,27 +101,23 @@ static const char *save_directory = NULL;
 static const char *content_directory = NULL;
 
 /* Version string */
-#define CASTAWAY_VERSION "v030"
+#define DCASTAWAY_VERSION "rc7"
+#define SF_VERSION "v033"
+#define LIBRETRO_VERSION "1.0"
 
 /*===========================================================================*/
-/* SF2000 MENU & INPUT SYSTEM - v022                                         */
+/* MENU & INPUT SYSTEM - v022                                         */
 /*===========================================================================*/
 
 /* Input mode: 0=Joystick, 1=Mouse */
 static int opt_input_mode = 0;  /* Start in joystick mode */
 
-/* v021: 2-Player support - SF2000 supports wireless 2nd controller */
+/* v021: 2-Player support - with 2nd controller */
 static int opt_player2_enabled = 0;  /* 0=disabled, 1=enabled */
 
 /* v022: Frameskip setting (mirrors mainMenu_frameskip) */
 /* -1=Auto, 0=Off, 1-5=skip N frames */
 static int opt_frameskip = 0;  /* Default: no frameskip */
-
-/* v023: FPS counter (ON by default, like QPSX) */
-static int fps_show = 0;        /* 1=show FPS, 0=hide */
-static int fps_current = 0;     /* Current FPS value */
-static int fps_frame_count = 0; /* Frame counter for FPS calc */
-static int fps_last_frame = 0;  /* libretro_frame_count at last FPS update */
 
 /* v027: CPU Boost - overclock 68000 by running more cycles per frame
  * 0=OFF (512 cycles/line), 1=1.25x (640), 2=1.5x (768), 3=2x (1024) */
@@ -151,11 +125,6 @@ static int opt_cpu_boost = 0;
 
 /* L+R hold counter for toggle*/
 static int lr_hold_frames = 0;
-
-/* Menu state */
-static int sf2000_menu_active = 0;
-static int sf2000_menu_item = 0;
-#define SF2000_MENU_ITEMS 8  /* Disk Swap, Frameskip, CPU Boost, Input Mode, 2 Player, Show FPS, About, Exit */
 
 /* v022: Per-game config directory */
 #define CASTAWAY_CONFIG_DIR "/mnt/sda1/cores/config/castaway"
@@ -408,110 +377,6 @@ static void draw_rect(uint16_t *fb, int x, int y, int w, int h, uint16_t color) 
 #define COLOR_DKBLUE  0x000A
 #define COLOR_RED     0xF800  /* v029: For warnings */
 
-#ifdef SF2000
-static void sf2000_draw_menu(uint16_t *fb) {
-    /* Menu background */
-    draw_rect(fb, 20, 40, 280, 170, COLOR_DKBLUE);
-    draw_rect(fb, 22, 42, 276, 166, COLOR_BLACK);
-
-    /* Header */
-    draw_text(fb, 30, 50, "ATARI ST - SF2000", COLOR_YELLOW);
-    draw_text(fb, 30, 62, "BY GRZEGORZ KORYCKI", COLOR_WHITE);
-    draw_text(fb, 30, 74, "@THE_Q_DEV ON TELEGRAM", COLOR_GRAY);
-
-    /* Separator */
-    draw_rect(fb, 30, 88, 260, 1, COLOR_GRAY);
-
-    /* Menu items - v023: reduced spacing (12px) to fit more items */
-    for (int i = 0; i < SF2000_MENU_ITEMS; i++) {
-        int item_y = 96 + i * 12;  /* v023: 12px spacing instead of 18px */
-        uint16_t color = (i == sf2000_menu_item) ? COLOR_YELLOW : COLOR_WHITE;
-
-        /* Selection marker */
-        if (i == sf2000_menu_item) {
-            draw_text(fb, 30, item_y, ">", color);
-        }
-
-        switch (i) {
-            case 0: {
-                /* Disk Swap - v020: show as "(X/Y) filename" format */
-                char diskbuf[50];
-                if (multidisk_count > 1) {
-                    snprintf(diskbuf, sizeof(diskbuf), "DISK: (%d/%d) %s",
-                             multidisk_current + 1, multidisk_count, get_current_disk_name());
-                } else {
-                    snprintf(diskbuf, sizeof(diskbuf), "DISK: %s", get_current_disk_name());
-                }
-                draw_text(fb, 45, item_y, diskbuf, color);
-                break;
-            }
-            case 1: {
-                /* v025: Frameskip 0-8 */
-                draw_text(fb, 45, item_y, "FRAMESKIP:", color);
-                const char *fskip;
-                switch (opt_frameskip) {
-                    case 0:  fskip = "OFF"; break;
-                    case 1:  fskip = "1"; break;
-                    case 2:  fskip = "2"; break;
-                    case 3:  fskip = "3"; break;
-                    case 4:  fskip = "4"; break;
-                    case 5:  fskip = "5"; break;
-                    case 6:  fskip = "6"; break;
-                    case 7:  fskip = "7"; break;
-                    case 8:  fskip = "8"; break;
-                    default: fskip = "?"; break;
-                }
-                draw_text(fb, 140, item_y, fskip, COLOR_YELLOW);
-                break;
-            }
-            case 2: {
-                /* v030: CPU Boost - MFP timer fix preserves music timing */
-                draw_text(fb, 45, item_y, "CPU BOOST:", color);
-                const char *boost;
-                switch (opt_cpu_boost) {
-                    case 0:  boost = "OFF"; break;
-                    case 1:  boost = "1.25X"; break;
-                    case 2:  boost = "1.5X"; break;
-                    case 3:  boost = "2X"; break;
-                    default: boost = "?"; break;
-                }
-                draw_text(fb, 140, item_y, boost, COLOR_YELLOW);
-                break;
-            }
-            case 3: {
-                /* Input Mode */
-                draw_text(fb, 45, item_y, "INPUT:", color);
-                const char *mode = opt_input_mode ? "MOUSE" : "JOYSTICK";
-                draw_text(fb, 110, item_y, mode, COLOR_YELLOW);
-                break;
-            }
-            case 4: {
-                /* v021: 2-Player Mode */
-                draw_text(fb, 45, item_y, "2 PLAYER:", color);
-                const char *p2mode = opt_player2_enabled ? "ON" : "OFF";
-                draw_text(fb, 130, item_y, p2mode, COLOR_YELLOW);
-                break;
-            }
-            case 5: {
-                /* v023: Show FPS toggle */
-                draw_text(fb, 45, item_y, "SHOW FPS:", color);
-                draw_text(fb, 130, item_y, fps_show ? "ON" : "OFF", COLOR_YELLOW);
-                break;
-            }
-            case 6:
-                draw_text(fb, 45, item_y, "ABOUT", color);
-                break;
-            case 7:
-                draw_text(fb, 45, item_y, "EXIT MENU", color);
-                break;
-        }
-    }
-
-    /* Footer - v028: moved lower to not overlap EXIT MENU */
-    draw_text(fb, 30, 198, "UP/DN:SEL A:OK B:EXIT", COLOR_GRAY);
-}
-#endif
-
 /*===========================================================================*/
 /* VIRTUAL KEYBOARD DRAWING - v019                                            */
 /*===========================================================================*/
@@ -520,7 +385,7 @@ static void sf2000_draw_menu(uint16_t *fb) {
 #define COLOR_VKBD_SEL   0x07E0  /* Green */
 #define COLOR_VKBD_TEXT  0xFFFF  /* White */
 
-static void sf2000_draw_vkbd(uint16_t *fb) {
+static void draw_vkbd(uint16_t *fb) {
     /* VKBD at bottom of screen */
     int base_x = 4;
     int base_y = 160;
@@ -867,90 +732,6 @@ static void apply_cpu_boost(void) {
     }
 }
 
-#ifdef SF2000
-/* Save per-game config using SF2000 firmware fs_* calls */
-static int sf2000_save_config(void) {
-    char path[256];
-    get_config_path(path, sizeof(path));
-
-    /* Ensure config directory exists */
-    fs_mkdir(CASTAWAY_CONFIG_DIR, 0755);
-
-    /* Open file for writing */
-    int fd = fs_open(path, FS_O_WRONLY | FS_O_CREAT | FS_O_TRUNC, 0666);
-    if (fd < 0) return 0;
-
-    /* Build config content */
-    char buf[256];
-    int len = snprintf(buf, sizeof(buf),
-        "# Castaway ST Config v028\n"
-        "frameskip=%d\n"
-        "cpu_boost=%d\n"
-        "input_mode=%d\n"
-        "player2=%d\n"
-        "fps_show=%d\n",
-        opt_frameskip,
-        opt_cpu_boost,
-        opt_input_mode,
-        opt_player2_enabled,
-        fps_show);
-
-    /* Write and close */
-    ssize_t written = fs_write(fd, buf, len);
-    fs_close(fd);
-
-    /* Sync to SD card */
-    fs_sync(path);
-
-    return (written == len) ? 1 : 0;
-}
-
-/* Load per-game config using SF2000 firmware fs_* calls */
-static int sf2000_load_config(void) {
-    char path[256];
-    get_config_path(path, sizeof(path));
-
-    /* Open file for reading */
-    int fd = fs_open(path, FS_O_RDONLY, 0);
-    if (fd < 0) return 0;
-
-    /* Read entire file */
-    char buf[256];
-    ssize_t bytes_read = fs_read(fd, buf, sizeof(buf) - 1);
-    fs_close(fd);
-
-    if (bytes_read <= 0) return 0;
-    buf[bytes_read] = '\0';
-
-    /* Parse line by line */
-    char* line = buf;
-    while (line && *line) {
-        char* next = strchr(line, '\n');
-        if (next) *next++ = '\0';
-
-        if (line[0] != '#' && line[0] != '\0') {
-            int val;
-            if (sscanf(line, "frameskip=%d", &val) == 1) opt_frameskip = val;
-            else if (sscanf(line, "cpu_boost=%d", &val) == 1) opt_cpu_boost = val;
-            else if (sscanf(line, "input_mode=%d", &val) == 1) opt_input_mode = val;
-            else if (sscanf(line, "player2=%d", &val) == 1) opt_player2_enabled = val;
-            else if (sscanf(line, "fps_show=%d", &val) == 1) fps_show = val;
-        }
-        line = next;
-    }
-
-    /* Apply loaded settings */
-    apply_frameskip();
-    apply_cpu_boost();
-
-    return 1;
-}
-#else
-/* Non-SF2000 stubs */
-static int sf2000_save_config(void) { return 0; }
-static int sf2000_load_config(void) { return 0; }
-#endif
-
 /* SDL compatibility - frame counter for SDL_GetTicks() */
 volatile uint32_t libretro_frame_count = 0;
 
@@ -1009,8 +790,8 @@ unsigned retro_api_version(void)
 void retro_get_system_info(struct retro_system_info *info)
 {
     memset(info, 0, sizeof(*info));
-    info->library_name     = "castaway";
-    info->library_version  = CASTAWAY_VERSION;
+    info->library_name     = "dcastaway";
+    info->library_version  = LIBRETRO_VERSION;
     info->valid_extensions = "st|msa|zip";
     info->need_fullpath    = 1;  /* We need the disk image path */
     info->block_extract    = 0;
@@ -1028,7 +809,7 @@ void retro_get_system_av_info(struct retro_system_av_info *info)
 
     struct retro_system_timing timing = {
         50.0,             /* fps (PAL) */
-        22050.0           /* sample_rate (same as SF2000) */
+        22050.0           /* sample_rate */
     };
 
     info->geometry = geom;
@@ -1157,11 +938,6 @@ int retro_load_game(const struct retro_game_info *game)
     detect_multidisk(disk_path);
     DIAG("retro_load_game() - multidisk detection done");
 
-    /* v022: Load per-game config (frameskip, input mode, etc.) */
-    if (sf2000_load_config()) {
-        DIAG("retro_load_game() - per-game config loaded");
-    }
-
     /* Deferred init handled by static Deffered in retro_run() - UAE4ALL pattern */
 
     DIAG("retro_load_game() - done");
@@ -1234,7 +1010,7 @@ static void poll_input(void)
     }
 
     /* SELECT = toggle virtual keyboard (edge triggered) - v019 */
-    if (cur_select && !prev_select && !sf2000_menu_active) {
+    if (cur_select && !prev_select) {
         vkbd_active = !vkbd_active;
         /* Release any held key when closing VKBD */
         if (!vkbd_active) {
@@ -1257,17 +1033,9 @@ static void poll_input(void)
     }
     prev_select = cur_select;
 
-#ifdef SF2000
-    /* START = toggle menu (edge triggered) */
-    if (cur_start && !prev_start && !vkbd_active) {
-        sf2000_menu_active = !sf2000_menu_active;
-        sf2000_menu_item = 0;
-    }
-#else
     if (cur_start && !prev_start && !vkbd_active) {
         ; // TODO: use for some action
     }
-#endif
     prev_start = cur_start;
 
     /* L = LMB, R = RMB (always, like UAE4ALL)
@@ -1290,99 +1058,6 @@ static void poll_input(void)
         mouse_rmb_pressed = 0;
     }
     prev_r = cur_r;
-
-#ifdef SF2000
-    /* Don't process game input if menu is active */
-    if (sf2000_menu_active) {
-        /* Menu navigation */
-        if (cur_up && !prev_up) {
-            sf2000_menu_item--;
-            if (sf2000_menu_item < 0) sf2000_menu_item = SF2000_MENU_ITEMS - 1;
-        }
-        if (cur_down && !prev_down) {
-            sf2000_menu_item++;
-            if (sf2000_menu_item >= SF2000_MENU_ITEMS) sf2000_menu_item = 0;
-        }
-        /* A = select/change */
-        if (cur_a && !prev_a) {
-            switch (sf2000_menu_item) {
-                case 0:  /* Disk Swap - v018 */
-                    disk_shuffle();
-                    break;
-                case 1:  /* v025: Frameskip cycle: OFF->1->2->...->8->OFF */
-                    if (opt_frameskip < 8) opt_frameskip++;
-                    else opt_frameskip = 0;  /* Wrap back to OFF */
-                    apply_frameskip();
-                    sf2000_save_config();  /* Save per-game config */
-                    break;
-                case 2:  /* v027: CPU Boost cycle: OFF->1.25x->1.5x->2x->OFF */
-                    if (opt_cpu_boost < 3) opt_cpu_boost++;
-                    else opt_cpu_boost = 0;
-                    apply_cpu_boost();
-                    sf2000_save_config();
-                    break;
-                case 3:  /* Input Mode */
-                    opt_input_mode = !opt_input_mode;
-                    sf2000_save_config();
-                    break;
-                case 4:  /* v021: 2-Player toggle */
-                    opt_player2_enabled = !opt_player2_enabled;
-                    sf2000_save_config();
-                    break;
-                case 5:  /* v023: Show FPS toggle */
-                    fps_show = !fps_show;
-                    sf2000_save_config();
-                    break;
-                case 6:  /* About - just flash */
-                    break;
-                case 7:  /* Exit Menu */
-                    sf2000_menu_active = 0;
-                    break;
-            }
-        }
-        /* Left/Right for frameskip fine control (v025: 0-8) */
-        if (sf2000_menu_item == 1) {
-            if (cur_left && !prev_left) {
-                if (opt_frameskip > 0) opt_frameskip--;
-                else opt_frameskip = 8;  /* Wrap from OFF to 8 */
-                apply_frameskip();
-                sf2000_save_config();
-            }
-            if (cur_right && !prev_right) {
-                if (opt_frameskip < 8) opt_frameskip++;
-                else opt_frameskip = 0;  /* Wrap to OFF */
-                apply_frameskip();
-                sf2000_save_config();
-            }
-        }
-        /* v027: Left/Right for CPU Boost fine control */
-        if (sf2000_menu_item == 2) {
-            if (cur_left && !prev_left) {
-                if (opt_cpu_boost > 0) opt_cpu_boost--;
-                else opt_cpu_boost = 3;  /* Wrap from OFF to 2x */
-                apply_cpu_boost();
-                sf2000_save_config();
-            }
-            if (cur_right && !prev_right) {
-                if (opt_cpu_boost < 3) opt_cpu_boost++;
-                else opt_cpu_boost = 0;  /* Wrap to OFF */
-                apply_cpu_boost();
-                sf2000_save_config();
-            }
-        }
-        /* B = exit menu */
-        if (cur_b && !prev_b) {
-            sf2000_menu_active = 0;
-        }
-        prev_up = cur_up;
-        prev_down = cur_down;
-        prev_left = cur_left;
-        prev_right = cur_right;
-        prev_a = cur_a;
-        prev_b = cur_b;
-        return;  /* Don't process game input */
-    }
-#endif
 
     /* v019: Virtual Keyboard input handling */
     if (vkbd_active) {
@@ -1488,7 +1163,7 @@ static void poll_input(void)
             enter_pressed = 0;
         }
 
-        /* v021: Player 2 input from second controller (SF2000 wireless) */
+        /* v021: Player 2 input from second controller */
         if (opt_player2_enabled) {
             static uint8_t g_cached_joy1 = 0;
             uint8_t joystate2 = 0;
@@ -1586,51 +1261,6 @@ static void poll_input(void)
     prev_y = cur_y;
 }
 
-/*===========================================================================*/
-/* FPS COUNTER - v023 (like QPSX)                                            */
-/*===========================================================================*/
-
-/* FPS color thresholds (green/yellow/red like QPSX) */
-#define FPS_GOOD     0x07E0  /* Green: >= 25 fps (50% of target) */
-#define FPS_OK       0xFFE0  /* Yellow: >= 15 fps */
-#define FPS_BAD      0xF800  /* Red: < 15 fps */
-#define FPS_BG       0x0000  /* Black background */
-
-/* Update FPS counter - called every frame */
-static void update_fps_counter(void)
-{
-    fps_frame_count++;
-
-    /* Check if one second has passed (50 frames at PAL 50Hz) */
-    int elapsed_frames = libretro_frame_count - fps_last_frame;
-    if (elapsed_frames >= 50) {
-        /* Calculate FPS based on frames rendered in the elapsed time */
-        fps_current = (fps_frame_count * 50) / elapsed_frames;
-        fps_frame_count = 0;
-        fps_last_frame = libretro_frame_count;
-    }
-}
-
-/* Draw FPS overlay in top-left corner (like QPSX) */
-static void draw_fps_overlay(uint16_t *fb)
-{
-    if (!fps_show || !fb || sf2000_menu_active) return;
-
-    /* Choose color based on FPS value */
-    uint16_t col;
-    if (fps_current >= 25) col = FPS_GOOD;       /* Green: >= 50% target */
-    else if (fps_current >= 15) col = FPS_OK;    /* Yellow: >= 30% target */
-    else col = FPS_BAD;                          /* Red: < 30% target */
-
-    /* Draw small black background box */
-    draw_rect(fb, 2, 2, 24, 11, FPS_BG);
-
-    /* Draw FPS value */
-    char buf[8];
-    snprintf(buf, sizeof(buf), "%2d", fps_current > 99 ? 99 : fps_current);
-    draw_text(fb, 4, 3, buf, col);
-}
-
 static void check_variables(void)
 {
     struct retro_variable var = {0};
@@ -1683,16 +1313,6 @@ static void check_variables(void)
             opt_player2_enabled = 1;
     }
 
-    var.key = "dcastaway_fps_show";
-    var.value = NULL;
-
-    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-    {
-        if (strcmp(var.value, "OFF") == 0)
-            fps_show = 0;
-        else if (strcmp(var.value, "ON") == 0)
-            fps_show = 1;
-    }
 }
 
 /*
@@ -1730,7 +1350,7 @@ void retro_run(void)
     poll_input();
 
     /* Run emulation if not paused by menu */
-    if (emulating && !sf2000_menu_active) {
+    if (emulating) {
         dcastaway_one_frame();
 
         /* v028: Re-apply CPU boost after each frame
@@ -1752,26 +1372,15 @@ void retro_run(void)
      * If screen_add=20: content at rows 20-219, borders at 0-19 and 220-239
      * If screen_add=0: content may span full 0-239 (overscan mode) */
 
-#ifdef SF2000
-    /* Draw menu overlay if active */
-    if (sf2000_menu_active) {
-        sf2000_draw_menu(frame_buffer);
-    }
-#endif
-
     /* v019: Draw virtual keyboard if active */
     if (vkbd_active) {
-        sf2000_draw_vkbd(frame_buffer);
+        draw_vkbd(frame_buffer);
     }
-
-    /* v023: FPS counter update and draw */
-    update_fps_counter();
-    draw_fps_overlay(frame_buffer);
 
     /* v024: Hard frameskip - skip video_cb for N frames
      * This VISIBLY skips frames and reduces frontend load */
     static int video_skip_count = 0;
-    if (opt_frameskip > 0 && !sf2000_menu_active && !vkbd_active) {
+    if (opt_frameskip > 0 && !vkbd_active) {
         video_skip_count++;
         if (video_skip_count < opt_frameskip) {
             /* Skip this frame - tell frontend no new frame */
