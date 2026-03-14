@@ -119,14 +119,14 @@ static const char *content_directory = NULL;
 /*===========================================================================*/
 
 /* Input mode: 0=Joystick, 1=Mouse */
-static int sf2000_input_mode = 0;  /* Start in joystick mode */
+static int opt_input_mode = 0;  /* Start in joystick mode */
 
 /* v021: 2-Player support - SF2000 supports wireless 2nd controller */
-static int sf2000_player2_enabled = 0;  /* 0=disabled, 1=enabled */
+static int opt_player2_enabled = 0;  /* 0=disabled, 1=enabled */
 
 /* v022: Frameskip setting (mirrors mainMenu_frameskip) */
 /* -1=Auto, 0=Off, 1-5=skip N frames */
-static int sf2000_frameskip = 0;  /* Default: no frameskip */
+static int opt_frameskip = 0;  /* Default: no frameskip */
 
 /* v023: FPS counter (ON by default, like QPSX) */
 static int fps_show = 1;        /* 1=show FPS, 0=hide */
@@ -136,7 +136,7 @@ static int fps_last_frame = 0;  /* libretro_frame_count at last FPS update */
 
 /* v027: CPU Boost - overclock 68000 by running more cycles per frame
  * 0=OFF (512 cycles/line), 1=1.25x (640), 2=1.5x (768), 3=2x (1024) */
-static int sf2000_cpu_boost = 0;
+static int opt_cpu_boost = 0;
 
 /* L+R hold counter for toggle*/
 static int lr_hold_frames = 0;
@@ -438,7 +438,7 @@ static void sf2000_draw_menu(uint16_t *fb) {
                 /* v025: Frameskip 0-8 */
                 draw_text(fb, 45, item_y, "FRAMESKIP:", color);
                 const char *fskip;
-                switch (sf2000_frameskip) {
+                switch (opt_frameskip) {
                     case 0:  fskip = "OFF"; break;
                     case 1:  fskip = "1"; break;
                     case 2:  fskip = "2"; break;
@@ -457,7 +457,7 @@ static void sf2000_draw_menu(uint16_t *fb) {
                 /* v030: CPU Boost - MFP timer fix preserves music timing */
                 draw_text(fb, 45, item_y, "CPU BOOST:", color);
                 const char *boost;
-                switch (sf2000_cpu_boost) {
+                switch (opt_cpu_boost) {
                     case 0:  boost = "OFF"; break;
                     case 1:  boost = "1.25X"; break;
                     case 2:  boost = "1.5X"; break;
@@ -470,14 +470,14 @@ static void sf2000_draw_menu(uint16_t *fb) {
             case 3: {
                 /* Input Mode */
                 draw_text(fb, 45, item_y, "INPUT:", color);
-                const char *mode = sf2000_input_mode ? "MOUSE" : "JOYSTICK";
+                const char *mode = opt_input_mode ? "MOUSE" : "JOYSTICK";
                 draw_text(fb, 110, item_y, mode, COLOR_YELLOW);
                 break;
             }
             case 4: {
                 /* v021: 2-Player Mode */
                 draw_text(fb, 45, item_y, "2 PLAYER:", color);
-                const char *p2mode = sf2000_player2_enabled ? "ON" : "OFF";
+                const char *p2mode = opt_player2_enabled ? "ON" : "OFF";
                 draw_text(fb, 130, item_y, p2mode, COLOR_YELLOW);
                 break;
             }
@@ -828,8 +828,8 @@ static void get_config_path(char* path, int size) {
  * - frameskip is the current counter (reset to 0 to apply immediately)
  */
 static void apply_frameskip(void) {
-    mainMenu_frameskip = sf2000_frameskip;
-    maxframeskip = sf2000_frameskip;  /* v024: This is what actually controls skipping! */
+    mainMenu_frameskip = opt_frameskip;
+    maxframeskip = opt_frameskip;  /* v024: This is what actually controls skipping! */
     frameskip = 0;  /* v024: Reset counter to apply immediately */
 }
 
@@ -847,7 +847,7 @@ static void apply_cpu_boost(void) {
     /* v031: Set base for MFP timer compensation (always real 8MHz timing) */
     mfp_base_hsync = base;
 
-    switch (sf2000_cpu_boost) {
+    switch (opt_cpu_boost) {
         case 0:  emu_hsync_add = base;            break;  /* 1x - Normal */
         case 1:  emu_hsync_add = (base * 5) / 4;  break;  /* 1.25x */
         case 2:  emu_hsync_add = (base * 3) / 2;  break;  /* 1.5x */
@@ -878,10 +878,10 @@ static int sf2000_save_config(void) {
         "input_mode=%d\n"
         "player2=%d\n"
         "fps_show=%d\n",
-        sf2000_frameskip,
-        sf2000_cpu_boost,
-        sf2000_input_mode,
-        sf2000_player2_enabled,
+        opt_frameskip,
+        opt_cpu_boost,
+        opt_input_mode,
+        opt_player2_enabled,
         fps_show);
 
     /* Write and close */
@@ -919,10 +919,10 @@ static int sf2000_load_config(void) {
 
         if (line[0] != '#' && line[0] != '\0') {
             int val;
-            if (sscanf(line, "frameskip=%d", &val) == 1) sf2000_frameskip = val;
-            else if (sscanf(line, "cpu_boost=%d", &val) == 1) sf2000_cpu_boost = val;
-            else if (sscanf(line, "input_mode=%d", &val) == 1) sf2000_input_mode = val;
-            else if (sscanf(line, "player2=%d", &val) == 1) sf2000_player2_enabled = val;
+            if (sscanf(line, "frameskip=%d", &val) == 1) opt_frameskip = val;
+            else if (sscanf(line, "cpu_boost=%d", &val) == 1) opt_cpu_boost = val;
+            else if (sscanf(line, "input_mode=%d", &val) == 1) opt_input_mode = val;
+            else if (sscanf(line, "player2=%d", &val) == 1) opt_player2_enabled = val;
             else if (sscanf(line, "fps_show=%d", &val) == 1) fps_show = val;
         }
         line = next;
@@ -1154,14 +1154,6 @@ int retro_load_game(const struct retro_game_info *game)
     /* v022: Load per-game config (frameskip, input mode, etc.) */
     if (sf2000_load_config()) {
         DIAG("retro_load_game() - per-game config loaded");
-    } else {
-        /* No config found - use defaults */
-        sf2000_frameskip = 0;  /* OFF by default */
-        sf2000_input_mode = 0;  /* Joystick by default */
-        sf2000_player2_enabled = 0;  /* Off by default */
-        fps_show = 0;  /* FPS OFF by default */
-        apply_frameskip();
-        DIAG("retro_load_game() - using default config");
     }
 
     /* Deferred init handled by static Deffered in retro_run() - UAE4ALL pattern */
@@ -1230,7 +1222,7 @@ static void poll_input(void)
     if (cur_l && cur_r) {
         lr_hold_frames++;
         if (lr_hold_frames == 3)
-            sf2000_input_mode = !sf2000_input_mode;
+            opt_input_mode = !opt_input_mode;
     } else {
         lr_hold_frames = 0;
     }
@@ -1312,23 +1304,23 @@ static void poll_input(void)
                     disk_shuffle();
                     break;
                 case 1:  /* v025: Frameskip cycle: OFF->1->2->...->8->OFF */
-                    if (sf2000_frameskip < 8) sf2000_frameskip++;
-                    else sf2000_frameskip = 0;  /* Wrap back to OFF */
+                    if (opt_frameskip < 8) opt_frameskip++;
+                    else opt_frameskip = 0;  /* Wrap back to OFF */
                     apply_frameskip();
                     sf2000_save_config();  /* Save per-game config */
                     break;
                 case 2:  /* v027: CPU Boost cycle: OFF->1.25x->1.5x->2x->OFF */
-                    if (sf2000_cpu_boost < 3) sf2000_cpu_boost++;
-                    else sf2000_cpu_boost = 0;
+                    if (opt_cpu_boost < 3) opt_cpu_boost++;
+                    else opt_cpu_boost = 0;
                     apply_cpu_boost();
                     sf2000_save_config();
                     break;
                 case 3:  /* Input Mode */
-                    sf2000_input_mode = !sf2000_input_mode;
+                    opt_input_mode = !opt_input_mode;
                     sf2000_save_config();
                     break;
                 case 4:  /* v021: 2-Player toggle */
-                    sf2000_player2_enabled = !sf2000_player2_enabled;
+                    opt_player2_enabled = !opt_player2_enabled;
                     sf2000_save_config();
                     break;
                 case 5:  /* v023: Show FPS toggle */
@@ -1345,14 +1337,14 @@ static void poll_input(void)
         /* Left/Right for frameskip fine control (v025: 0-8) */
         if (sf2000_menu_item == 1) {
             if (cur_left && !prev_left) {
-                if (sf2000_frameskip > 0) sf2000_frameskip--;
-                else sf2000_frameskip = 8;  /* Wrap from OFF to 8 */
+                if (opt_frameskip > 0) opt_frameskip--;
+                else opt_frameskip = 8;  /* Wrap from OFF to 8 */
                 apply_frameskip();
                 sf2000_save_config();
             }
             if (cur_right && !prev_right) {
-                if (sf2000_frameskip < 8) sf2000_frameskip++;
-                else sf2000_frameskip = 0;  /* Wrap to OFF */
+                if (opt_frameskip < 8) opt_frameskip++;
+                else opt_frameskip = 0;  /* Wrap to OFF */
                 apply_frameskip();
                 sf2000_save_config();
             }
@@ -1360,14 +1352,14 @@ static void poll_input(void)
         /* v027: Left/Right for CPU Boost fine control */
         if (sf2000_menu_item == 2) {
             if (cur_left && !prev_left) {
-                if (sf2000_cpu_boost > 0) sf2000_cpu_boost--;
-                else sf2000_cpu_boost = 3;  /* Wrap from OFF to 2x */
+                if (opt_cpu_boost > 0) opt_cpu_boost--;
+                else opt_cpu_boost = 3;  /* Wrap from OFF to 2x */
                 apply_cpu_boost();
                 sf2000_save_config();
             }
             if (cur_right && !prev_right) {
-                if (sf2000_cpu_boost < 3) sf2000_cpu_boost++;
-                else sf2000_cpu_boost = 0;  /* Wrap to OFF */
+                if (opt_cpu_boost < 3) opt_cpu_boost++;
+                else opt_cpu_boost = 0;  /* Wrap to OFF */
                 apply_cpu_boost();
                 sf2000_save_config();
             }
@@ -1449,7 +1441,7 @@ static void poll_input(void)
     /* NOTE: prev_x/prev_y updated at END of function for edge detection */
 
     /* Input mode: Joystick or Mouse */
-    if (sf2000_input_mode == 0) {
+    if (opt_input_mode == 0) {
         /* JOYSTICK MODE - Player 1 */
         uint8_t joystate = 0;
 
@@ -1491,7 +1483,7 @@ static void poll_input(void)
         }
 
         /* v021: Player 2 input from second controller (SF2000 wireless) */
-        if (sf2000_player2_enabled) {
+        if (opt_player2_enabled) {
             static uint8_t g_cached_joy1 = 0;
             uint8_t joystate2 = 0;
 
@@ -1667,7 +1659,7 @@ void retro_run(void)
 
         /* v028: Re-apply CPU boost after each frame
          * dcastaway.cpp may reset emu_hsync_add during video mode changes */
-        if (sf2000_cpu_boost > 0) {
+        if (opt_cpu_boost > 0) {
             apply_cpu_boost();
         }
 #ifndef NO_SOUND
@@ -1703,9 +1695,9 @@ void retro_run(void)
     /* v024: Hard frameskip - skip video_cb for N frames
      * This VISIBLY skips frames and reduces frontend load */
     static int video_skip_count = 0;
-    if (sf2000_frameskip > 0 && !sf2000_menu_active && !vkbd_active) {
+    if (opt_frameskip > 0 && !sf2000_menu_active && !vkbd_active) {
         video_skip_count++;
-        if (video_skip_count < sf2000_frameskip) {
+        if (video_skip_count < opt_frameskip) {
             /* Skip this frame - tell frontend no new frame */
             video_cb(NULL, CASTAWAY_WIDTH, SCREEN_HEIGHT, CASTAWAY_WIDTH << 1);
             return;
