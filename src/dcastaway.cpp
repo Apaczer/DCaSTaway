@@ -276,6 +276,7 @@ void init_vid_cycles(void)
 {
 	int i;
 
+#ifndef NO_FLOATING_POINT
 #ifdef USE_SHORT_SLICE
 	double pal=136.0/512.0;
 	double ntsc=136.0/427.0;
@@ -288,10 +289,20 @@ void init_vid_cycles(void)
 	double ntsc=168.0/427.0;
 #endif
 #endif
+#else
+#ifdef USE_SHORT_SLICE
+	int pal = 136;
+	int ntsc = 136;
+#else
+	int pal = 168;
+	int ntsc = 168;
+#endif
+#endif
 
 	for(i=0;i<12;i++)
 		vid_cycles_pal[i]=vid_cycles_ntsc[i]=0;
 	for(i=12;i<512-12;i++)
+#ifndef NO_FLOATING_POINT
 		vid_cycles_pal[i]=(unsigned char)(((double)i-12)*pal);
 	for(i=12;i<426-12;i++)
 		vid_cycles_ntsc[i]=(unsigned char)(((double)i-12)*ntsc);
@@ -299,6 +310,15 @@ void init_vid_cycles(void)
 		vid_cycles_pal[i]=(unsigned char)(((double)512-12)*pal);
 	for(i=426-12;i<1024;i++)
 		vid_cycles_ntsc[i]=(unsigned char)(((double)426-12)*pal);
+#else
+		vid_cycles_pal[i]=(unsigned char)(((i-12) * pal + 256) >> 9);
+	for(i=12;i<426-12;i++)
+		vid_cycles_ntsc[i]=(unsigned char)(((i-12) * ntsc) / 427);
+	for(i=512-12;i<1024;i++)
+		vid_cycles_pal[i]=(unsigned char)(((512-12) * pal + 256) >> 9);
+	for(i=426-12;i<1024;i++)
+		vid_cycles_ntsc[i]=(unsigned char)(((426-12) * pal) / 427);
+#endif
 
 	vid_cycle=(unsigned char *)&vid_cycles_pal;
 }
